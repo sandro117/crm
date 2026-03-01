@@ -7,6 +7,9 @@ export default {
   darkMode: 'class', // Enables dark mode toggling via class
   theme: {
     extend: {
+      fontFamily: {
+        sans: ['Inter', 'sans-serif'],
+      },
       colors: {
         primary: {
           50: '#eef2ff',

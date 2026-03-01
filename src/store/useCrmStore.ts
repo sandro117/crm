@@ -1,7 +1,8 @@
 import { create } from 'zustand';
 import { supabase } from '../lib/supabase';
-
 export interface FunnelStage { id: string; name: string; order_index: number; }
+export interface Tag { id: string; name: string; color: string; }
+export interface QuickResponse { id: string; title: string; content: string; shortcut: string; }
 export interface Lead {
   id: string;
   phone_number: string;
@@ -9,9 +10,10 @@ export interface Lead {
   email?: string;
   company?: string;
   deal_value?: number;
+  notes?: string;
   estimated_close_date?: string;
   stage_id: string;
-  tags: string[];
+  tags: Tag[];
   last_interaction_at: string;
   avatar?: string;
 }
@@ -21,6 +23,8 @@ interface CrmState {
   funnel_stages: FunnelStage[];
   leads: Lead[];
   messages: Message[];
+  available_tags: Tag[];
+  quick_responses: QuickResponse[];
   selectedLeadId: string | null;
   activeFilter: 'Todos' | 'Abertos' | 'Aguardando' | 'Fechados';
   activeView: 'chat' | 'kanban';
@@ -39,11 +43,15 @@ interface CrmState {
   updateLeadStage: (leadId: string, newStageId: string) => Promise<void>; // Local + Backend
   updateLeadValue: (leadId: string, newValue: number) => Promise<void>; // Local + Backend
   updateLeadDetails: (leadId: string, details: Partial<Lead>) => void;
-  addTag: (leadId: string, tag: string) => void;
-  removeTag: (leadId: string, tag: string) => void;
+  addTag: (leadId: string, tagId: string) => Promise<void>;
+  removeTag: (leadId: string, tagId: string) => Promise<void>;
+  addQuickResponse: (data: Omit<QuickResponse, 'id'>) => Promise<void>;
+  deleteQuickResponse: (id: string) => Promise<void>;
 }
 
 export const useCrmStore = create<CrmState>((set, get) => ({
+  available_tags: [],
+  quick_responses: [],
   funnel_stages: [],
   leads: [],
   messages: [],
@@ -62,7 +70,11 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       if (stagesError) throw stagesError;
       console.log("Etapas do Funil encontradas:", stagesData);
 
-      const { data: leadsData, error: leadsError } = await supabase.from('leads').select('*');
+      const { data: tagsData, error: tagsDataError } = await supabase.from('tags').select('*');
+      if (tagsDataError) throw tagsDataError;
+      console.log("Tags globais encontradas:", tagsData);
+
+      const { data: leadsData, error: leadsError } = await supabase.from('leads').select('*, lead_tags(tags(id, name, color))');
       if (leadsError) throw leadsError;
       console.log("Leads encontrados:", leadsData);
 
@@ -70,15 +82,21 @@ export const useCrmStore = create<CrmState>((set, get) => ({
       if (messagesError) throw messagesError;
       console.log("Mensagens encontradas:", messagesData);
 
+      // Busca Quick Responses silenciosamente
+      const { data: qResponses, error: qrError } = await supabase.from('quick_responses').select('*');
+      if (qrError) console.warn("Tabela quick_responses não encontrada ou vazia", qrError);
+
       const leads = leadsData || [];
       const currentSelected = get().selectedLeadId;
       const initialLeadId = currentSelected || (leads.length > 0 ? leads[0].id : null);
 
       set({
+        available_tags: tagsData || [],
+        quick_responses: qResponses || [],
         funnel_stages: stagesData || [],
         leads: leads.map(l => ({
           ...l,
-          tags: Array.isArray(l.tags) ? l.tags : [],
+          tags: (l.lead_tags || []).map((lt: any) => lt.tags).filter(Boolean),
           last_interaction_at: l.last_interaction_at || new Date().toISOString()
         })),
         messages: messagesData || [],
@@ -303,25 +321,85 @@ export const useCrmStore = create<CrmState>((set, get) => ({
     }));
   },
 
-  addTag: (leadId, tag) => {
+  addTag: async (leadId, tagId) => {
+    const tagToAdd = get().available_tags.find(t => t.id === tagId);
+    if (!tagToAdd) return;
+
+    // Otimista
     set((state) => ({
       leads: state.leads.map(lead => {
-        if (lead.id === leadId && !lead.tags.includes(tag)) {
-          return { ...lead, tags: [...lead.tags, tag] };
+        if (lead.id === leadId && !lead.tags.some(t => t.id === tagId)) {
+          return { ...lead, tags: [...lead.tags, tagToAdd] };
         }
         return lead;
       })
     }));
+
+    // Backend
+    const { error } = await supabase.from('lead_tags').insert([{ lead_id: leadId, tag_id: tagId }]);
+    if (error) {
+      console.error('Erro ao adicionar tag:', error);
+      // Rollback
+      set((state) => ({
+        leads: state.leads.map(lead => {
+          if (lead.id === leadId) {
+            return { ...lead, tags: lead.tags.filter(t => t.id !== tagId) };
+          }
+          return lead;
+        })
+      }));
+    }
   },
 
-  removeTag: (leadId, tagToRemove) => {
+  removeTag: async (leadId, tagId) => {
+    const previousLead = get().leads.find(l => l.id === leadId);
+    const removedTag = previousLead?.tags.find(t => t.id === tagId);
+
+    // Otimista
     set((state) => ({
       leads: state.leads.map(lead => {
         if (lead.id === leadId) {
-          return { ...lead, tags: lead.tags.filter(t => t !== tagToRemove) };
+          return { ...lead, tags: lead.tags.filter(t => t.id !== tagId) };
         }
         return lead;
       })
     }));
+
+    // Backend
+    const { error } = await supabase.from('lead_tags').delete().match({ lead_id: leadId, tag_id: tagId });
+    if (error) {
+      console.error('Erro ao remover tag:', error);
+      // Rollback
+      if (removedTag) {
+        set((state) => ({
+          leads: state.leads.map(lead => {
+            if (lead.id === leadId) {
+              return { ...lead, tags: [...lead.tags, removedTag] };
+            }
+            return lead;
+          })
+        }));
+      }
+    }
+  },
+
+  addQuickResponse: async (data) => {
+    try {
+      const { data: newResponse, error } = await supabase.from('quick_responses').insert(data).select().single();
+      if (error) throw error;
+      set(state => ({ quick_responses: [...state.quick_responses, newResponse] }));
+    } catch (err) {
+      console.error('Erro ao adicionar quick response:', err);
+    }
+  },
+
+  deleteQuickResponse: async (id) => {
+    try {
+      const { error } = await supabase.from('quick_responses').delete().eq('id', id);
+      if (error) throw error;
+      set(state => ({ quick_responses: state.quick_responses.filter(qr => qr.id !== id) }));
+    } catch (err) {
+      console.error('Erro ao deletar quick response:', err);
+    }
   }
 }));

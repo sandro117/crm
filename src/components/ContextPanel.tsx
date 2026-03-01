@@ -1,10 +1,12 @@
 import React, { useState } from 'react';
 import { useCrmStore } from '../store/useCrmStore';
 import {
-    Phone, Tag, X, Plus, ChevronDown, ChevronRight,
-    DollarSign, Calendar, Mail, Briefcase, FileText, Activity, User, Edit2
+    Phone, Tag as TagIcon, ChevronDown, ChevronRight,
+    DollarSign, Calendar, Mail, Briefcase, FileText, Activity, User, Edit2, Zap, Plus, Trash2
 } from 'lucide-react';
 import clsx from 'clsx';
+import { TagBadge } from './TagBadge';
+import { Avatar } from './Avatar';
 interface AccordionProps {
     title: string;
     icon: React.ReactNode;
@@ -43,7 +45,7 @@ function Accordion({ title, icon, isOpen, onToggle, children }: AccordionProps) 
 }
 
 export function ContextPanel() {
-    const { leads, funnel_stages, changeLeadStage, updateLeadDetails, addTag, removeTag, selectedLeadId } = useCrmStore();
+    const { leads, funnel_stages, available_tags, changeLeadStage, updateLeadDetails, addTag, removeTag, selectedLeadId } = useCrmStore();
     const [newTag, setNewTag] = useState('');
     const [internalNotes, setInternalNotes] = useState('');
 
@@ -52,8 +54,27 @@ export function ContextPanel() {
         funnel: true,
         data: false,
         qualify: true,
-        notes: false
+        notes: false,
+        config: false
     });
+
+    const [isAddingQr, setIsAddingQr] = useState(false);
+    const [newQrTitle, setNewQrTitle] = useState('');
+    const [newQrShortcut, setNewQrShortcut] = useState('');
+    const [newQrContent, setNewQrContent] = useState('');
+
+    const handleAddQr = () => {
+        if (!newQrTitle || !newQrShortcut || !newQrContent) return;
+        useCrmStore.getState().addQuickResponse({
+            title: newQrTitle,
+            shortcut: newQrShortcut,
+            content: newQrContent
+        });
+        setIsAddingQr(false);
+        setNewQrTitle('');
+        setNewQrShortcut('');
+        setNewQrContent('');
+    };
 
     const toggleAccordion = (key: string) => {
         setOpenAccordions(prev => ({ ...prev, [key]: !prev[key] }));
@@ -69,11 +90,18 @@ export function ContextPanel() {
         );
     }
 
-    const handleAddTag = (e: React.FormEvent) => {
-        e.preventDefault();
-        if (newTag.trim()) {
-            addTag(selectedLead.id, newTag.trim());
-            setNewTag('');
+    // Handle Tag Selection from Select
+    const handleTagSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
+        const tagId = e.target.value;
+        if (tagId) {
+            addTag(selectedLead.id, tagId);
+            setNewTag(''); // Reset the select
+        }
+    };
+
+    const handleNotesSave = () => {
+        if (selectedLead.notes !== internalNotes) {
+            updateLeadDetails(selectedLead.id, { notes: internalNotes });
         }
     };
 
@@ -82,14 +110,11 @@ export function ContextPanel() {
 
             {/* Header Info - Fixed */}
             <div className="p-8 bg-white dark:bg-slate-800/40 border-b border-slate-200 dark:border-slate-800 items-center justify-center flex flex-col pt-10 sticky top-0 z-10 shadow-sm">
-                <div className="relative mb-5">
-                    <img
-                        src={selectedLead.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedLead.name)}&size=150`}
-                        alt={selectedLead.name}
-                        className="w-24 h-24 rounded-full object-cover shadow-md ring-4 ring-white dark:ring-slate-800 bg-slate-100"
-                    />
-                    <span className="absolute bottom-1 right-1 w-4 h-4 bg-emerald-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
-                </div>
+                <Avatar
+                    name={selectedLead.name}
+                    url={selectedLead.avatar}
+                    className="w-24 h-24 text-3xl shadow-md mb-5 ring-4 ring-white dark:ring-slate-800"
+                />
 
                 <h2 className="text-xl font-extrabold text-slate-900 dark:text-slate-100 mb-1.5 text-center leading-tight">
                     {selectedLead.name}
@@ -229,42 +254,34 @@ export function ContextPanel() {
                 {/* Accordion 3: Qualificação & Tags */}
                 <Accordion
                     title="Qualificação & Tags"
-                    icon={<Tag className="w-4 h-4" />}
+                    icon={<TagIcon className="w-4 h-4" />}
                     isOpen={openAccordions.qualify}
                     onToggle={() => toggleAccordion('qualify')}
                 >
                     <div className="flex flex-wrap gap-2 mb-4">
                         {selectedLead.tags.map(tag => (
-                            <span key={tag} className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full text-[11px] font-bold tracking-wide uppercase bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 border border-indigo-100/50 dark:border-indigo-800/30 shadow-sm transition-all hover:shadow-md">
-                                {tag}
-                                <button
-                                    onClick={() => removeTag(selectedLead.id, tag)}
-                                    className="hover:text-white hover:bg-indigo-500 dark:hover:bg-indigo-500 rounded-full p-0.5 transition-colors"
-                                >
-                                    <X className="w-3.5 h-3.5" />
-                                </button>
-                            </span>
+                            <TagBadge key={tag.id} tag={tag} onRemove={() => removeTag(selectedLead.id, tag.id)} />
                         ))}
                         {selectedLead.tags.length === 0 && (
                             <span className="text-xs text-slate-400 italic font-medium">Nenhuma tag...</span>
                         )}
                     </div>
 
-                    <form onSubmit={handleAddTag} className="relative flex shadow-sm rounded-xl overflow-hidden ring-1 ring-slate-200 dark:ring-slate-700 focus-within:ring-2 focus-within:ring-indigo-500 transition-shadow">
-                        <input
-                            type="text"
+                    <div className="relative flex shadow-sm rounded-xl overflow-hidden ring-1 ring-slate-200 dark:ring-slate-700 focus-within:ring-2 focus-within:ring-indigo-500 transition-shadow">
+                        <select
                             value={newTag}
-                            onChange={(e) => setNewTag(e.target.value)}
-                            placeholder="Adicionar tag..."
-                            className="w-full bg-white dark:bg-slate-800 border-none px-4 py-2.5 text-sm outline-none text-slate-900 dark:text-slate-100 placeholder-slate-400"
-                        />
-                        <button
-                            type="submit"
-                            className="bg-slate-50 hover:bg-indigo-50 dark:bg-slate-800/50 dark:hover:bg-indigo-900/30 text-slate-500 hover:text-indigo-600 dark:text-slate-400 px-4 py-2.5 transition-colors flex items-center justify-center shrink-0 border-l border-slate-200 dark:border-slate-700"
+                            onChange={handleTagSelect}
+                            className="w-full bg-white dark:bg-slate-800 border-none px-4 py-2.5 text-sm outline-none text-slate-900 dark:text-slate-100 cursor-pointer appearance-none"
                         >
-                            <Plus className="w-4 h-4" />
-                        </button>
-                    </form>
+                            <option value="" disabled hidden>Escolher tag disponível...</option>
+                            {available_tags.filter(t => !selectedLead.tags.some(lt => lt.id === t.id)).map(tag => (
+                                <option key={tag.id} value={tag.id}>{tag.name}</option>
+                            ))}
+                        </select>
+                        <div className="absolute inset-y-0 right-0 flex items-center pr-3 pointer-events-none text-slate-400">
+                            <ChevronDown className="w-4 h-4" />
+                        </div>
+                    </div>
                 </Accordion>
 
                 {/* Accordion 4: Anotações & Histórico */}
@@ -277,13 +294,17 @@ export function ContextPanel() {
                     <div className="space-y-4">
                         <div>
                             <p className="text-xs text-slate-500 dark:text-slate-400 mb-2 font-medium">Visível apenas para a equipe internamente.</p>
-                            <div className="relative shadow-sm rounded-xl overflow-hidden bg-amber-50/50 dark:bg-amber-900/10 border border-amber-200/60 dark:border-amber-900/50 transition-all focus-within:border-amber-400 focus-within:ring-1 focus-within:ring-amber-400">
+                            <div className="relative group shadow-sm rounded-xl overflow-hidden bg-amber-50/50 dark:bg-amber-900/10 border border-amber-200/60 dark:border-amber-900/50 transition-all focus-within:border-amber-400 focus-within:ring-1 focus-within:ring-amber-400">
                                 <textarea
                                     value={internalNotes}
                                     onChange={(e) => setInternalNotes(e.target.value)}
                                     placeholder="Digite anotações privadas deste lead (o cliente não verá)..."
                                     className="w-full h-32 resize-none p-3 bg-transparent text-sm text-amber-900 dark:text-amber-100/90 focus:ring-0 outline-none border-none border-transparent focus:border-transparent placeholder-amber-700/40 dark:placeholder-amber-500/40"
+                                    onBlur={handleNotesSave}
                                 ></textarea>
+                                <div className="absolute right-2 bottom-2 opacity-0 group-hover:opacity-100 transition-opacity pointer-events-none">
+                                    <span className="text-[10px] uppercase font-bold tracking-wider bg-amber-200/50 dark:bg-amber-800/50 text-amber-700 dark:text-amber-400 px-2 py-1 rounded">Salvo ao sair</span>
+                                </div>
                             </div>
                         </div>
 
@@ -306,6 +327,78 @@ export function ContextPanel() {
                                     <span className="text-[10px] text-slate-400">Segunda-feira</span>
                                 </li>
                             </ul>
+                        </div>
+                    </div>
+                </Accordion>
+
+                {/* Accordion 5: Configurações & Atalhos */}
+                <Accordion
+                    title="Configurações & Atalhos"
+                    icon={<Zap className="w-4 h-4" />}
+                    isOpen={openAccordions.config}
+                    onToggle={() => toggleAccordion('config')}
+                >
+                    <div className="space-y-4">
+                        <div>
+                            <div className="flex items-center justify-between mb-3">
+                                <h4 className="text-xs font-bold text-slate-500 uppercase tracking-wider">Respostas Rápidas</h4>
+                                <button onClick={() => setIsAddingQr(true)} className="p-1 w-6 h-6 rounded-md bg-indigo-50 text-indigo-600 dark:bg-indigo-900/30 dark:text-indigo-400 hover:bg-indigo-100 dark:hover:bg-indigo-900/50 flex items-center justify-center transition-colors">
+                                    <Plus className="w-3.5 h-3.5" />
+                                </button>
+                            </div>
+                            <ul className="space-y-2 max-h-48 overflow-y-auto scrollbar-custom pr-1">
+                                {useCrmStore.getState().quick_responses?.map(qr => (
+                                    <li key={qr.id} className="relative group bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700/80 rounded-lg p-2.5 shadow-sm">
+                                        <div className="flex justify-between items-start mb-1 pr-6">
+                                            <span className="font-semibold text-xs text-slate-800 dark:text-slate-200 truncate">{qr.title}</span>
+                                            {qr.shortcut && <span className="font-mono text-[9px] text-slate-400 bg-slate-100 dark:bg-slate-700 px-1 rounded">/{qr.shortcut}</span>}
+                                        </div>
+                                        <p className="text-[10px] text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">{qr.content}</p>
+                                        <button
+                                            onClick={() => useCrmStore.getState().deleteQuickResponse(qr.id)}
+                                            className="absolute top-2 right-2 p-1 text-slate-300 hover:text-red-500 hover:bg-red-50 dark:hover:bg-red-900/40 rounded transition-colors opacity-0 group-hover:opacity-100"
+                                        >
+                                            <Trash2 className="w-3.5 h-3.5" />
+                                        </button>
+                                    </li>
+                                ))}
+                                {(!useCrmStore.getState().quick_responses || useCrmStore.getState().quick_responses.length === 0) && (
+                                    <p className="text-xs text-slate-400 text-center py-2">Nenhum atalho criado.</p>
+                                )}
+                            </ul>
+
+                            {isAddingQr && (
+                                <div className="mt-3 p-3 bg-indigo-50/50 dark:bg-indigo-900/10 border border-indigo-100 dark:border-indigo-800 rounded-xl space-y-2 animate-in slide-in-from-top-2">
+                                    <input
+                                        type="text"
+                                        placeholder="Título (ex: Boas vindas)"
+                                        value={newQrTitle}
+                                        onChange={e => setNewQrTitle(e.target.value)}
+                                        className="w-full text-xs px-3 py-2 border-none rounded-lg bg-white dark:bg-slate-800 shadow-sm outline-none focus:ring-1 focus:ring-indigo-400 text-slate-800 dark:text-slate-200"
+                                    />
+                                    <div className="flex items-center bg-white dark:bg-slate-800 rounded-lg shadow-sm px-3 focus-within:ring-1 focus-within:ring-indigo-400 overflow-hidden">
+                                        <span className="text-slate-400 text-xs font-mono">/</span>
+                                        <input
+                                            type="text"
+                                            placeholder="atalho"
+                                            value={newQrShortcut}
+                                            onChange={e => setNewQrShortcut(e.target.value.toLowerCase().replace(/[^a-z0-9_-]/g, ''))}
+                                            className="w-full text-xs py-2 border-none bg-transparent outline-none font-mono text-slate-700 dark:text-slate-300 ml-1"
+                                        />
+                                    </div>
+                                    <textarea
+                                        placeholder="Texto da mensagem..."
+                                        value={newQrContent}
+                                        onChange={e => setNewQrContent(e.target.value)}
+                                        className="w-full text-xs px-3 py-2 border-none rounded-lg bg-white dark:bg-slate-800 shadow-sm outline-none focus:ring-1 focus:ring-indigo-400 h-16 resize-none text-slate-800 dark:text-slate-200"
+                                    ></textarea>
+                                    <div className="flex items-center justify-end gap-2 pt-1">
+                                        <button onClick={() => setIsAddingQr(false)} className="px-3 py-1.5 text-[10px] font-bold text-slate-500 hover:bg-slate-200 dark:hover:bg-slate-700 rounded-lg transition-colors">Cancelar</button>
+                                        <button onClick={handleAddQr} className="px-3 py-1.5 text-[10px] font-bold text-white bg-indigo-500 hover:bg-indigo-600 rounded-lg shadow-sm transition-colors">Salvar</button>
+                                    </div>
+                                </div>
+                            )}
+
                         </div>
                     </div>
                 </Accordion>

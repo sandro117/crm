@@ -1,7 +1,10 @@
 import React, { useState } from 'react';
 import { useCrmStore } from '../store/useCrmStore';
 import clsx from 'clsx';
-import { DollarSign, Tag, User } from 'lucide-react';
+import { DollarSign, User } from 'lucide-react';
+import { TagBadge } from './TagBadge';
+import { motion } from 'framer-motion';
+import { Avatar } from './Avatar';
 
 export function KanbanBoard() {
     const { funnel_stages, leads, updateLeadStage, updateLeadValue } = useCrmStore();
@@ -53,7 +56,7 @@ export function KanbanBoard() {
     ];
 
     return (
-        <div className="flex-1 h-screen bg-slate-50 dark:bg-slate-900/50 overflow-x-auto overflow-y-hidden flex gap-6 p-8 scrollbar-custom">
+        <div className="flex-1 h-screen bg-slate-50 dark:bg-slate-950 overflow-x-auto overflow-y-hidden flex gap-6 p-8 scrollbar-custom">
             {columns.map(stage => {
                 const stageLeads = stage.id === 'unassigned'
                     ? leads.filter(l => !l.stage_id || funnel_stages.every(s => s.id !== l.stage_id))
@@ -65,19 +68,22 @@ export function KanbanBoard() {
                 const totalValue = stageLeads.reduce((acc, lead) => acc + (lead.deal_value || 0), 0);
 
                 return (
-                    <div
+                    <motion.div
                         key={stage.id}
+                        initial={{ opacity: 0, y: 15 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.3, delay: stage.order_index * 0.05 + 0.1 }}
                         className={clsx(
-                            "flex-shrink-0 w-80 h-full flex flex-col rounded-2xl border overflow-hidden",
+                            "flex-shrink-0 w-80 h-full flex flex-col rounded-[1.5rem] border overflow-hidden shadow-sm transition-colors",
                             stage.id === 'unassigned'
-                                ? "bg-slate-100/30 dark:bg-slate-800/10 border-dashed border-slate-300 dark:border-slate-700/50"
-                                : "bg-slate-100/50 dark:bg-slate-800/20 border-slate-200/60 dark:border-slate-800/50"
+                                ? "bg-slate-100/40 dark:bg-slate-900/50 border-dashed border-slate-300 dark:border-slate-800"
+                                : "bg-slate-100/60 dark:bg-slate-900/80 border-slate-200/80 dark:border-slate-800"
                         )}
                         onDragOver={handleDragOver}
-                        onDrop={(e) => handleDrop(e, stage.id)}
+                        onDrop={(e) => handleDrop(e, stage.id as string)} // Ensure string explicitly
                     >
                         {/* Column Header */}
-                        <div className="p-4 border-b border-slate-200/60 dark:border-slate-800 bg-white/50 dark:bg-slate-800/40 backdrop-blur-sm sticky top-0 z-10 transition-colors">
+                        <div className="p-4 border-b border-slate-200/80 dark:border-slate-800 bg-slate-100/80 dark:bg-slate-900/90 backdrop-blur-md sticky top-0 z-10 transition-colors">
                             <div className="flex items-center justify-between mb-2">
                                 <h3 className="font-bold text-slate-800 dark:text-slate-100 uppercase tracking-tight text-sm">
                                     {stage.name}
@@ -94,22 +100,26 @@ export function KanbanBoard() {
 
                         {/* Column Content */}
                         <div className="flex-1 p-3 overflow-y-auto scrollbar-hide space-y-3">
-                            {stageLeads.map(lead => (
-                                <div
+                            {stageLeads.map((lead, index) => (
+                                <motion.div
                                     key={lead.id}
+                                    layoutId={lead.id}
+                                    initial={{ opacity: 0, scale: 0.95 }}
+                                    animate={{ opacity: 1, scale: 1 }}
+                                    transition={{ duration: 0.2, delay: index * 0.03 }}
                                     draggable
-                                    onDragStart={(e) => handleDragStart(e, lead.id)}
+                                    onDragStart={((e: any) => handleDragStart(e, lead.id)) as any}
                                     onDragEnd={() => setDraggingLeadId(null)}
                                     className={clsx(
-                                        "bg-white dark:bg-slate-800 p-4 rounded-xl border border-slate-200 dark:border-slate-700 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md transition-all group",
-                                        draggingLeadId === lead.id && "opacity-50 scale-95"
+                                        "bg-white dark:bg-slate-950 p-4 rounded-[1.25rem] border border-slate-200 dark:border-slate-800 shadow-sm cursor-grab active:cursor-grabbing hover:shadow-md hover:-translate-y-0.5 transition-all group",
+                                        draggingLeadId === lead.id && "opacity-60 scale-95 shadow-none"
                                     )}
                                 >
                                     <div className="flex items-start gap-3 mb-3">
-                                        <img
-                                            src={lead.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(lead.name)}&background=random`}
-                                            alt={lead.name}
-                                            className="w-10 h-10 rounded-full object-cover shadow-sm bg-slate-100"
+                                        <Avatar
+                                            name={lead.name}
+                                            url={lead.avatar}
+                                            className="w-10 h-10 text-xs"
                                         />
                                         <div className="flex-1 min-w-0">
                                             <h4 className="text-sm font-bold text-slate-900 dark:text-slate-100 truncate group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">
@@ -166,16 +176,13 @@ export function KanbanBoard() {
                                             </span>
                                         )}
                                         {lead.tags.slice(0, 3).map(tag => (
-                                            <span key={tag} className="inline-flex items-center px-1.5 py-0.5 rounded text-[9px] font-bold uppercase tracking-wider bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
-                                                <Tag className="w-2.5 h-2.5 mr-0.5" />
-                                                {tag}
-                                            </span>
+                                            <TagBadge key={tag.id} tag={tag} showIcon />
                                         ))}
                                     </div>
-                                </div>
+                                </motion.div>
                             ))}
                         </div>
-                    </div>
+                    </motion.div>
                 );
             })}
         </div>

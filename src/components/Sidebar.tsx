@@ -3,6 +3,8 @@ import { Search, MessageSquare, LayoutDashboard } from 'lucide-react';
 import { formatDistanceToNow } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import clsx from 'clsx';
+import { TagBadge } from './TagBadge';
+import { Avatar } from './Avatar';
 
 const filters = ['Todos', 'Abertos', 'Aguardando', 'Fechados'] as const;
 
@@ -14,14 +16,14 @@ export function Sidebar() {
         if (activeFilter === 'Todos') return true;
         if (activeFilter === 'Fechados' && lead.stage_id === '4') return true;
         if (activeFilter === 'Abertos' && lead.stage_id !== '4') return true;
-        if (activeFilter === 'Aguardando') return lead.tags.includes('Aguardando');
+        if (activeFilter === 'Aguardando') return lead.tags.some(t => t.name === 'Aguardando');
         return false;
     });
 
     return (
-        <div className="w-[25vw] h-screen bg-white dark:bg-slate-900 border-r border-slate-200 dark:border-slate-800 flex flex-col z-20 shadow-[4px_0_24px_-12px_rgba(0,0,0,0.1)]">
+        <div className="w-[25vw] h-screen bg-white/60 dark:bg-slate-950/60 backdrop-blur-2xl border-r border-slate-200 dark:border-slate-800 flex flex-col z-20 shadow-sm">
             {/* Header / Search */}
-            <div className="p-6 pb-4">
+            <div className="p-6 pb-4 bg-white/80 dark:bg-slate-950/80 backdrop-blur-md sticky top-0 z-30 border-b border-transparent transition-all">
                 <h1 className="text-2xl font-extrabold text-slate-800 dark:text-slate-100 mb-6 tracking-tight flex items-center gap-2">
                     <div className="w-8 h-8 bg-indigo-600 rounded-lg flex items-center justify-center text-white text-lg">H</div>
                     Hypestore
@@ -94,18 +96,18 @@ export function Sidebar() {
                             key={lead.id}
                             onClick={() => selectLead(lead.id)}
                             className={clsx(
-                                'p-4 cursor-pointer transition-all duration-200 group rounded-xl',
+                                'p-4 cursor-pointer transition-all duration-300 group rounded-2xl mx-2',
                                 isSelected
-                                    ? 'bg-white dark:bg-slate-800 shadow-sm border-l-4 border-indigo-600 ring-1 ring-slate-100 dark:ring-slate-700/50'
-                                    : 'hover:bg-slate-50 dark:hover:bg-slate-800/50 border-l-4 border-transparent'
+                                    ? 'bg-white dark:bg-slate-900 shadow-sm border border-slate-200 dark:border-slate-800 ring-1 ring-indigo-500/20'
+                                    : 'hover:bg-white/50 dark:hover:bg-slate-900/50 border border-transparent'
                             )}
                         >
                             <div className="flex items-start gap-3">
                                 <div className="relative flex-shrink-0">
-                                    <img
-                                        src={lead.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(lead.name)}&background=random`}
-                                        alt={lead.name}
-                                        className="w-12 h-12 rounded-full object-cover shadow-sm bg-slate-100 ring-2 ring-white dark:ring-slate-800"
+                                    <Avatar
+                                        name={lead.name}
+                                        url={lead.avatar}
+                                        className="w-12 h-12 text-sm ring-2 ring-white dark:ring-slate-800"
                                     />
                                     {/* Status Indicator */}
                                     <span className="absolute bottom-0 right-0 w-3 h-3 bg-emerald-500 border-2 border-white dark:border-slate-800 rounded-full"></span>
@@ -124,14 +126,12 @@ export function Sidebar() {
                                         Clique para ver as mensagens...
                                     </p>
 
-                                    <div className="flex gap-2 items-center">
-                                        <span className="inline-flex items-center px-2 py-0.5 rounded text-[10px] font-bold uppercase tracking-wide bg-slate-100 text-slate-600 dark:bg-slate-700 dark:text-slate-300">
+                                    <div className="flex gap-1.5 items-center mt-1">
+                                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[9px] font-bold uppercase tracking-widest bg-slate-100 text-slate-500 dark:bg-slate-800 dark:text-slate-400">
                                             {stage?.name || 'Sem Etapa'}
                                         </span>
-                                        {lead.tags.slice(0, 1).map(tag => (
-                                            <span key={tag} className="inline-flex items-center px-2 py-0.5 rounded-full text-[10px] font-bold bg-indigo-50 text-indigo-700 dark:bg-indigo-900/30 dark:text-indigo-400 truncate max-w-[80px]">
-                                                {tag}
-                                            </span>
+                                        {lead.tags.slice(0, 2).map(tag => (
+                                            <TagBadge key={tag.id} tag={tag} className="truncate max-w-[80px]" />
                                         ))}
                                     </div>
                                 </div>

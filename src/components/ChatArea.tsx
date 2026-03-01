@@ -1,15 +1,19 @@
 import { useState, useRef, useEffect } from 'react';
 import { useCrmStore } from '../store/useCrmStore';
 import { Paperclip, Mic, Send, MoreVertical, Smartphone, FileText, X, Square } from 'lucide-react';
-import { format } from 'date-fns';
+import { format, isSameDay } from 'date-fns';
 import { ptBR } from 'date-fns/locale';
 import clsx from 'clsx';
+import { motion, AnimatePresence } from 'framer-motion';
+import { Avatar } from './Avatar';
 
 export function ChatArea() {
-    const { leads, messages, selectedLeadId, sendMessage } = useCrmStore();
+    const { leads, messages, quick_responses, selectedLeadId, sendMessage } = useCrmStore();
     const [inputText, setInputText] = useState('');
     const [showQuickReplies, setShowQuickReplies] = useState(false);
+    const [quickReplyFilter, setQuickReplyFilter] = useState('');
     const scrollRef = useRef<HTMLDivElement>(null);
+    const [isTyping, setIsTyping] = useState(false); // evolution api typing mockup
 
     // Media states
     const [isRecording, setIsRecording] = useState(false);
@@ -37,13 +41,33 @@ export function ChatArea() {
         };
     }, []);
 
+    // Mocking incoming typing from Evolution API when a lead is selected
+    useEffect(() => {
+        setIsTyping(false);
+        const typingTimeout = setTimeout(() => {
+            // Randomly simulate typing for 3 seconds occasionally
+            if (Math.random() > 0.5) setIsTyping(true);
+        }, 5000);
+
+        const stopTyping = setTimeout(() => {
+            setIsTyping(false);
+        }, 8000);
+
+        return () => {
+            clearTimeout(typingTimeout);
+            clearTimeout(stopTyping);
+        }
+    }, [selectedLeadId]);
+
     const handleInputChange = (e: React.ChangeEvent<HTMLInputElement>) => {
         const text = e.target.value;
         setInputText(text);
-        if (text === '/') {
+        if (text.startsWith('/')) {
             setShowQuickReplies(true);
+            setQuickReplyFilter(text.substring(1).toLowerCase());
         } else {
             setShowQuickReplies(false);
+            setQuickReplyFilter('');
         }
     };
 
@@ -156,8 +180,10 @@ export function ChatArea() {
     if (!selectedLead) {
         return (
             <div className="w-[50vw] h-screen bg-slate-50 dark:bg-slate-900 flex flex-col items-center justify-center">
-                <Smartphone className="w-16 h-16 text-slate-300 dark:text-slate-700 mb-4 opacity-50" />
-                <h2 className="text-xl text-slate-400 dark:text-slate-600 font-medium">Selecione uma conversa para começar</h2>
+                <motion.div initial={{ scale: 0.8, opacity: 0 }} animate={{ scale: 1, opacity: 1 }} className="flex flex-col items-center">
+                    <Smartphone className="w-16 h-16 text-slate-300 dark:text-slate-700 mb-4 opacity-50" />
+                    <h2 className="text-xl text-slate-400 dark:text-slate-600 font-medium">Selecione uma conversa para começar</h2>
+                </motion.div>
             </div>
         );
     }
@@ -168,14 +194,20 @@ export function ChatArea() {
             {/* Header */}
             <div className="h-16 px-6 bg-white/80 dark:bg-slate-900/80 backdrop-blur-md border-b border-slate-200/60 dark:border-slate-800 flex items-center justify-between z-20 shrink-0">
                 <div className="flex items-center gap-4 cursor-pointer">
-                    <img
-                        src={selectedLead.avatar || `https://ui-avatars.com/api/?name=${encodeURIComponent(selectedLead.name)}`}
-                        alt={selectedLead.name}
-                        className="w-10 h-10 rounded-full ring-2 ring-white dark:ring-slate-800 shadow-sm"
+                    <Avatar
+                        name={selectedLead.name}
+                        url={selectedLead.avatar}
+                        className="w-10 h-10 shadow-sm"
                     />
                     <div>
                         <h2 className="font-bold text-slate-900 dark:text-slate-100 leading-tight">{selectedLead.name}</h2>
-                        <span className="text-xs font-medium text-emerald-500 dark:text-emerald-400">Online</span>
+                        {isTyping ? (
+                            <span className="text-xs font-bold text-indigo-500 dark:text-indigo-400 animate-pulse flex items-center gap-1">
+                                digitando<span className="flex gap-0.5"><span className="animate-bounce delay-75">.</span><span className="animate-bounce delay-150">.</span><span className="animate-bounce delay-300">.</span></span>
+                            </span>
+                        ) : (
+                            <span className="text-xs font-medium text-emerald-500 dark:text-emerald-400">Online</span>
+                        )}
                     </div>
                 </div>
 
@@ -190,53 +222,76 @@ export function ChatArea() {
             </div>
 
             {/* Messages Area */}
-            <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-custom p-6 z-10 space-y-4">
-                {leadMessages.map((msg) => {
-                    const isOutbound = msg.direction === 'outbound';
-                    const time = format(new Date(msg.created_at), 'HH:mm', { locale: ptBR });
+            <div ref={scrollRef} className="flex-1 overflow-y-auto scrollbar-custom p-6 z-10 space-y-6">
+                <AnimatePresence initial={false}>
+                    {leadMessages.map((msg, index) => {
+                        const isOutbound = msg.direction === 'outbound';
+                        const time = format(new Date(msg.created_at), 'HH:mm', { locale: ptBR });
 
-                    return (
-                        <div key={msg.id} className={clsx('flex', isOutbound ? 'justify-end' : 'justify-start')}>
-                            <div
-                                className={clsx(
-                                    'max-w-[70%] px-5 py-3 text-[15px] relative',
-                                    isOutbound
-                                        ? 'bg-indigo-600 text-white rounded-2xl rounded-tr-sm shadow-[0_2px_8px_-2px_rgba(79,70,229,0.3)]'
-                                        : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-2xl rounded-tl-sm shadow-sm ring-1 ring-slate-100 dark:ring-slate-700/50'
+                        // Date Separator Logic
+                        const currentDate = new Date(msg.created_at);
+                        const previousMsg = index > 0 ? leadMessages[index - 1] : null;
+                        const showDateSeparator = !previousMsg || !isSameDay(currentDate, new Date(previousMsg.created_at));
+
+                        return (
+                            <div key={msg.id} className="flex flex-col">
+                                {showDateSeparator && (
+                                    <div className="flex justify-center my-4">
+                                        <span className="bg-slate-200/60 dark:bg-slate-800/60 text-slate-500 dark:text-slate-400 text-[11px] font-bold uppercase tracking-wider px-3 py-1 rounded-full shadow-sm backdrop-blur-sm">
+                                            {format(currentDate, "d 'de' MMMM", { locale: ptBR })}
+                                        </span>
+                                    </div>
                                 )}
-                            >
-                                <div className="pb-4 pr-4 leading-relaxed">
-                                    {msg.type === 'image' && msg.media_url ? (
-                                        <div className="mb-2">
-                                            <img src={msg.media_url} alt="Imagem enviada" className="max-w-[250px] max-h-[250px] object-cover rounded-xl shadow-sm border border-black/5" />
+                                <motion.div
+                                    initial={{ opacity: 0, y: 10, scale: 0.95 }}
+                                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                                    layout
+                                    className={clsx('flex', isOutbound ? 'justify-end' : 'justify-start')}
+                                >
+                                    <div
+                                        className={clsx(
+                                            'max-w-[75%] px-5 py-3 text-[15px] relative group',
+                                            isOutbound
+                                                ? 'bg-indigo-600 text-white rounded-3xl rounded-br-sm shadow-[0_4px_14px_-4px_rgba(79,70,229,0.3)]'
+                                                : 'bg-white dark:bg-slate-800 text-slate-800 dark:text-slate-100 rounded-3xl rounded-tl-sm shadow-sm ring-1 ring-slate-100 dark:ring-slate-700/50'
+                                        )}
+                                    >
+                                        <div className="pb-4 pr-5 leading-relaxed">
+                                            {msg.type === 'image' && msg.media_url ? (
+                                                <div className="mb-2 -mx-2 -mt-1 relative overflow-hidden rounded-2xl">
+                                                    <img src={msg.media_url} alt="Imagem enviada" className="max-w-[280px] max-h-[300px] object-cover hover:scale-105 transition-transform duration-300 cursor-pointer" />
+                                                </div>
+                                            ) : msg.type === 'audio' && msg.media_url ? (
+                                                <div className="mb-2">
+                                                    <audio controls src={msg.media_url} className="h-10 w-64 outline-none rounded-full" />
+                                                </div>
+                                            ) : msg.type === 'document' && msg.media_url ? (
+                                                <div className="mb-2 flex items-center gap-3 p-3 bg-black/10 dark:bg-white/10 rounded-xl hover:bg-black/20 dark:hover:bg-white/20 transition-colors">
+                                                    <div className="p-2 bg-white/20 dark:bg-black/20 rounded-lg">
+                                                        <FileText className="w-5 h-5 shrink-0" />
+                                                    </div>
+                                                    <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="text-sm font-semibold underline underline-offset-2 break-all line-clamp-1 hover:text-indigo-200">
+                                                        Baixar Documento
+                                                    </a>
+                                                </div>
+                                            ) : null}
+                                            {msg.content && <span className="whitespace-pre-wrap word-break">{msg.content}</span>}
                                         </div>
-                                    ) : msg.type === 'audio' && msg.media_url ? (
-                                        <div className="mb-2">
-                                            <audio controls src={msg.media_url} className="h-10 w-60 outline-none rounded-full" />
+                                        <div className="absolute right-3 bottom-2 flex items-center gap-1.5 opacity-80 group-hover:opacity-100 transition-opacity">
+                                            <span className={clsx("text-[10px] font-bold tracking-wide", isOutbound ? "text-indigo-200" : "text-slate-400")}>{time}</span>
+                                            {isOutbound && (
+                                                <svg viewBox="0 0 16 15" width="14" height="14" className={msg.status === 'read' ? 'text-cyan-300' : 'text-indigo-300'}>
+                                                    {/* Double Check SVG */}
+                                                    <path fill="currentColor" d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.879a.32.32 0 0 1-.484.033l-.358-.325a.319.319 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.541l1.32 1.266c.143.14.361.125.484-.033l6.272-8.048a.366.366 0 0 0-.064-.512zm-4.1 0l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.879a.32.32 0 0 1-.484.033L1.891 7.769a.366.366 0 0 0-.515.006l-.423.433a.364.364 0 0 0 .006.514l3.258 3.185c.143.14.361.125.484-.033l6.272-8.048a.365.365 0 0 0-.063-.51z"></path>
+                                                </svg>
+                                            )}
                                         </div>
-                                    ) : msg.type === 'document' && msg.media_url ? (
-                                        <div className="mb-2 flex items-center gap-2 p-3 bg-white/20 dark:bg-slate-700/50 rounded-lg">
-                                            <FileText className="w-6 h-6 shrink-0" />
-                                            <a href={msg.media_url} target="_blank" rel="noopener noreferrer" className="text-sm underline underline-offset-2 break-all line-clamp-1 hover:text-indigo-200">
-                                                Visualizar Documento
-                                            </a>
-                                        </div>
-                                    ) : null}
-                                    {msg.content && <span>{msg.content}</span>}
-                                </div>
-                                <div className="absolute right-3 bottom-2 flex items-center gap-1.5">
-                                    <span className={clsx("text-[10px] font-medium opacity-80", isOutbound ? "text-indigo-100" : "text-slate-400")}>{time}</span>
-                                    {isOutbound && (
-                                        <svg viewBox="0 0 16 15" width="14" height="14" className={msg.status === 'read' ? 'text-indigo-200' : 'text-indigo-400/50'}>
-                                            {/* Double Check SVG */}
-                                            <path fill="currentColor" d="M15.01 3.316l-.478-.372a.365.365 0 0 0-.51.063L8.666 9.879a.32.32 0 0 1-.484.033l-.358-.325a.319.319 0 0 0-.484.032l-.378.483a.418.418 0 0 0 .036.541l1.32 1.266c.143.14.361.125.484-.033l6.272-8.048a.366.366 0 0 0-.064-.512zm-4.1 0l-.478-.372a.365.365 0 0 0-.51.063L4.566 9.879a.32.32 0 0 1-.484.033L1.891 7.769a.366.366 0 0 0-.515.006l-.423.433a.364.364 0 0 0 .006.514l3.258 3.185c.143.14.361.125.484-.033l6.272-8.048a.365.365 0 0 0-.063-.51z"></path>
-                                        </svg>
-                                    )}
-                                </div>
+                                    </div>
+                                </motion.div>
                             </div>
-                        </div>
-                    );
-                })}
+                        );
+                    })}
+                </AnimatePresence>
             </div>
 
             {/* Input Area (Floating Style) */}
@@ -291,11 +346,31 @@ export function ChatArea() {
 
                             <div className="flex-1 relative flex items-center pr-2">
                                 {showQuickReplies && (
-                                    <div className="absolute bottom-full left-0 mb-4 w-72 bg-white dark:bg-slate-800 border border-slate-200 dark:border-slate-700 rounded-xl shadow-[0_8px_30px_rgb(0,0,0,0.12)] overflow-hidden shrink-0 z-50">
-                                        <div className="p-3 text-[11px] font-bold text-slate-400 uppercase tracking-wider bg-slate-50 dark:bg-slate-900 border-b border-slate-100 dark:border-slate-700/50">Respostas Rápidas</div>
-                                        <ul className="py-1">
-                                            <li onClick={() => { setInputText('Olá! Tudo bem? Como posso ajudar?'); setShowQuickReplies(false); }} className="px-4 py-3 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer text-slate-700 dark:text-slate-200 transition-colors">Saudação Inicial</li>
-                                            <li onClick={() => { setInputText('Aguarde um momento, por favor.'); setShowQuickReplies(false); }} className="px-4 py-3 text-sm font-medium hover:bg-slate-50 dark:hover:bg-slate-700/50 cursor-pointer text-slate-700 dark:text-slate-200 transition-colors">Pedir para aguardar</li>
+                                    <div className="absolute bottom-[calc(100%+12px)] left-0 w-80 bg-white/90 dark:bg-slate-900/90 backdrop-blur-xl border border-indigo-500/30 dark:border-indigo-500/40 rounded-2xl shadow-[0_8px_32px_-4px_rgba(79,70,229,0.2)] overflow-hidden shrink-0 z-50 animate-in fade-in slide-in-from-bottom-2">
+                                        <div className="px-4 py-2.5 text-[10px] font-bold text-indigo-500 dark:text-indigo-400 uppercase tracking-widest border-b border-indigo-100 dark:border-indigo-500/20 bg-indigo-50/50 dark:bg-indigo-900/20">
+                                            ⚡ Respostas Rápidas
+                                        </div>
+                                        <ul className="max-h-64 overflow-y-auto scrollbar-custom p-1.5 space-y-0.5">
+                                            {(quick_responses || []).filter(qr => qr.shortcut?.toLowerCase().includes(quickReplyFilter) || qr.title.toLowerCase().includes(quickReplyFilter) || qr.content.toLowerCase().includes(quickReplyFilter)).length > 0 ? (
+                                                (quick_responses || []).filter(qr => qr.shortcut?.toLowerCase().includes(quickReplyFilter) || qr.title.toLowerCase().includes(quickReplyFilter) || qr.content.toLowerCase().includes(quickReplyFilter)).map(qr => (
+                                                    <li
+                                                        key={qr.id}
+                                                        onClick={() => { setInputText(qr.content); setShowQuickReplies(false); fileInputRef.current?.focus(); }}
+                                                        className="px-3 py-2.5 rounded-xl hover:bg-slate-100 dark:hover:bg-slate-800 cursor-pointer transition-all group flex flex-col gap-0.5"
+                                                    >
+                                                        <div className="flex items-center justify-between">
+                                                            <div className="font-bold text-sm text-slate-800 dark:text-slate-200 group-hover:text-indigo-600 dark:group-hover:text-indigo-400 transition-colors">{qr.title}</div>
+                                                            {qr.shortcut && <span className="text-[10px] font-mono bg-slate-200/60 dark:bg-slate-700 text-slate-500 dark:text-slate-400 px-1.5 py-0.5 rounded">/{qr.shortcut}</span>}
+                                                        </div>
+                                                        <div className="text-[11px] font-medium text-slate-500 dark:text-slate-400 line-clamp-2 leading-relaxed">{qr.content}</div>
+                                                    </li>
+                                                ))
+                                            ) : (
+                                                <li className="px-4 py-6 flex flex-col items-center justify-center text-center">
+                                                    <span className="text-xl mb-1">🤔</span>
+                                                    <span className="text-sm font-medium text-slate-500 dark:text-slate-400">Nenhum atalho encontrado</span>
+                                                </li>
+                                            )}
                                         </ul>
                                     </div>
                                 )}
